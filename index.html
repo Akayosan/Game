@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <title>DApp Mint NFT - Monad Testnet</title>
+  <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
+  <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.12.1/dist/umd/index.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+    button { padding: 10px 20px; margin: 10px; font-size: 16px; cursor: pointer; }
+    #status { color: green; }
+    #error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Mint NFT di Monad Testnet</h1>
+  <p>Contract: 0xbe15b76c52af6b965c33db450e620f6bc6695de5</p>
+  <p>Metadata contoh: <a href="https://ipfs.io/ipfs/bafkreieuy6dxdqpzxquytur2hk2eeqyigejccid3jouyvcd2jbmz53nhwi" target="_blank">Lihat Metadata</a> (Nama: Ultra Scuttle #1, Deskripsi: A powerful warrior in the game world)</p>
+  <button id="connectMetamaskButton">Connect MetaMask</button>
+  <button id="connectWalletConnectButton">Connect WalletConnect</button>
+  <button id="mintButton" disabled>Mint NFT</button>
+  <p id="status"></p>
+  <p id="error"></p>
+
+  <script>
+    const contractAddress = '0xbe15b76c52af6b965c33db450e620f6bc6695de5';
+    const abi = [
+      'function mint() public' // Sesuaikan jika mint Anda berbeda, misalnya 'mint(address to)' atau payable
+    ];
+    const rpcUrl = 'https://testnet-rpc.monad.xyz';
+    const chainId = 10143;
+
+    let provider;
+    let signer;
+    let contract;
+
+    const connectMetamaskButton = document.getElementById('connectMetamaskButton');
+    const connectWalletConnectButton = document.getElementById('connectWalletConnectButton');
+    const mintButton = document.getElementById('mintButton');
+    const status = document.getElementById('status');
+    const error = document.getElementById('error');
+
+    // Fungsi untuk setup network Monad Testnet
+    async function setupNetwork(web3Provider) {
+      try {
+        await web3Provider.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x' + chainId.toString(16),
+            chainName: 'Monad Testnet',
+            rpcUrls: [rpcUrl],
+            nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+            blockExplorerUrls: ['https://testnet.monadexplorer.com']
+          }]
+        });
+      } catch (err) {
+        error.innerText = 'Gagal setup network: ' + err.message;
+      }
+    }
+
+    // Connect via MetaMask
+    connectMetamaskButton.onclick = async () => {
+      if (window.ethereum) {
+        try {
+          provider = new ethers.providers.Web3Provider(window.ethereum);
+          await provider.send('eth_requestAccounts', []);
+          const network = await provider.getNetwork();
+          if (network.chainId !== chainId) {
+            await setupNetwork(window.ethereum);
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: '0x' + chainId.toString(16) }],
+            });
+          }
+          signer = provider.getSigner();
+          contract = new ethers.Contract(contractAddress, abi, signer);
+          mintButton.disabled = false;
+          connectMetamaskButton.innerText = 'MetaMask Terhubung';
+          status.innerText = 'Wallet terhubung! Alamat: ' + await signer.getAddress();
+          error.innerText = '';
+        } catch (err) {
+          error.innerText = 'Error: ' + err.message;
+        }
+      } else {
+        error.innerText = 'Instal MetaMask terlebih dahulu!';
+      }
+    };
+
+    // Connect via WalletConnect V2
+    connectWalletConnectButton.onclick = async () => {
+      try {
+        // Pastikan library dimuat
+        if (!window['@walletconnect/ethereum-provider']) {
+          throw new Error('WalletConnect library tidak dimuat dengan benar. Periksa koneksi internet atau CDN.');
+        }
+
+        const WalletConnectProvider = window['@walletconnect/ethereum-provider'];
+        const wcProvider = await WalletConnectProvider.init({
+          projectId: '0f2586914b4fbf68234d5133a4cff980', // Daftar di https://cloud.walletconnect.com untuk dapatkan projectId
+          chains: [chainId],
+          optionalChains: [],
+          metadata: {
+            name: 'Mint NFT DApp',
+            description: 'DApp untuk minting NFT di Monad Testnet',
+            url: 'https://your-dapp-url.com', // Ganti dengan URL DApp Anda
+            icons: ['https://your-dapp-url.com/icon.png']
+          },
+          rpcMap: { [chainId]: rpcUrl }
+        });
+
+        await wcProvider.connect(); // Menampilkan QR code untuk scan
+        provider = new ethers.providers.Web3Provider(wcProvider);
+        const network = await provider.getNetwork();
+        if (network.chainId !== chainId) {
+          await setupNetwork(wcProvider);
+        }
+        signer = provider.getSigner();
+        contract = new ethers.Contract(contractAddress, abi, signer);
+        mintButton.disabled = false;
+        connectWalletConnectButton.innerText = 'WalletConnect Terhubung';
+        status.innerText = 'Wallet terhubung! Alamat: ' + await signer.getAddress();
+        error.innerText = '';
+
+        // Handle disconnect
+        wcProvider.on('disconnect', () => {
+          mintButton.disabled = true;
+          status.innerText = 'Wallet terputus.';
+          error.innerText = '';
+        });
+      } catch (err) {
+        error.innerText = 'Error WalletConnect: ' + err.message;
+      }
+    };
+
+    // Fungsi Mint NFT
+    mintButton.onclick = async () => {
+      try {
+        status.innerText = 'Sedang minting...';
+        error.innerText = '';
+        const tx = await contract.mint(); // Tambahkan { value: ethers.utils.parseEther('0.01') } jika payable
+        await tx.wait();
+        status.innerText = 'NFT berhasil dimint! Tx Hash: ' + tx.hash;
+      } catch (err) {
+        error.innerText = 'Error minting: ' + err.message;
+      }
+    };
+  </script>
+</body>
+</html>
